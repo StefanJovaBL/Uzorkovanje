@@ -9,25 +9,25 @@ from streamlit_folium import st_folium
 st.set_page_config(page_title="WebGIS Šema Uzorkovanja", layout="wide")
 
 st.title("🌾 WebGIS Alat za Automatsku Šemu Uzorkovanja Tla")
-st.markdown("Nacrtajte parcelu direktno na satelitskom snimku ispod, a aplikacija će automatski izračunati površinu, prebaciti koordinate u UTM metarski sistem, podijeliti je na 10 jednakih dijelova i izračunati centroide.")
+st.markdown("Nacrtajte parcelu direktno na satelitskom snimku ispod pomoću alata za crtanje, a aplikacija će automatski izračunati površinu, prebaciti koordinate u UTM metarski sistem, podijeliti je na 10 jednakih dijelova i izračunati centroide.")
 
-# 1. Kreiranje mape sa besplatnom Esri Satelitskom podlogom i hibridnim oznakama
+# 1. Inicijalna mapa centrirana oko Banja Luke sa satelitskom podlogom
 m = folium.Map(location=[44.7722, 17.1910], zoom_start=14, tiles=None)
 
-# Satelitska podloga (Esri World Imagery)
+# Satelitska podloga (Esri World Imagery) na prvoj mapi
 folium.TileLayer(
     tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attr='Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
-    name='Satelitska mapa (Esri)',
+    attr='Esri',
+    name='Satelitska mapa',
     overlay=False,
     control=True
 ).add_to(m)
 
-# Hibridni sloj sa nazivima naselja, putevima i granicama (poput Google Hybrid-a)
+# Hibridne oznake na prvoj mapi
 folium.TileLayer(
     tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
     attr='Esri',
-    name='Hibridni nazivi i granice',
+    name='Nazivi i granice',
     overlay=True,
     control=True
 ).add_to(m)
@@ -35,7 +35,7 @@ folium.TileLayer(
 # Standardni OSM kao alternativa
 folium.TileLayer('OpenStreetMap', name='OpenStreetMap', overlay=False, control=True).add_to(m)
 
-# Dodavanje alata za crtanje (omogućavamo samo crtanje poligona - parcele)
+# Dodavanje alata za crtanje
 draw = Draw(
     export=False,
     position='topleft',
@@ -50,6 +50,7 @@ draw = Draw(
     edit_options={'edit': True}
 )
 draw.add_to(m)
+folium.LayerControl().add_to(m)
 
 # Prikaz mape i preuzimanje nacrtanih objekata
 st.subheader("1. Nacrtajte granicu parcele na satelitskom snimku:")
@@ -129,7 +130,7 @@ if poly_wgs84 is not None:
                         
             current_ymin = current_ymax
 
-        # Prikaz rezultata na novoj mapi sa satelitskom podlogom
+        # Prikaz rezultata na mapi sa satelitskom podlogom
         st.subheader("2. Rezultat: Granica parcele i tačke uzorkovanja")
         result_map = folium.Map(location=[lat, lon], zoom_start=15, tiles=None)
         
