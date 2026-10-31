@@ -1,6 +1,6 @@
 import streamlit as st
 import geopandas as gpd
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
 from pyproj import CRS, Transformer
 import folium
 from streamlit_folium import st_folium
@@ -11,30 +11,34 @@ st.set_page_config(page_title="WebGIS Šema Uzorkovanja", layout="wide")
 st.title("🌾 WebGIS Alat za Automatsku Šemu Uzorkovanja Tla")
 st.markdown("Učitajte GeoJSON fajl sa granicom parcele, a aplikacija će automatski izračunati površinu, prebaciti koordinate u UTM metarski sistem, podijeliti je na 10 jednakih dijelova i izračunati centroide.")
 
-# Uvoz GeoJSON fajla parcele
 uploaded_file = st.file_uploader("1. Učitajte granicu parcele (GeoJSON fajl):", type=["geojson", "json"])
 
 if uploaded_file is not None:
     try:
-        # Učitavanje GeoJSON podatka
-        geojson_data = json.load(uploaded_file)
+        # Čitanje fajla direktno preko geopandas-a (najstabilniji način za sve tipove GeoJSON-a)
+        gdf = gpd.read_file(uploaded_file)
         
-        # Ekstrakcija geometrije
-        if "features" in geojson_data and len(geojson_data["features"]) > 0:
-            geom = geojson_data["features"][0]["geometry"]
-        elif "geometry" in geojson_data:
-            geom = geojson_data["geometry"]
+        if gdf.empty:
+            st.error("⚠️ Učitani fajl je prazan.")
         else:
-            geom = geojson_data # Ako je direktno geometrija
+            # Uzimamo prvu geometriju iz fajla i osiguravamo da je u WGS84 (EPSG:4326)
+            if gdf.crs is not None and gdf.crs != "EPSG:4326":
+                gdf = gdf.to_crs("EPSG:4326")
+                
+            geom = gdf.geometry.iloc[0]
             
-        if geom["type"] == "Polygon":
-            coords = geom["coordinates"][0]
-            poly_wgs84 = Polygon(coords)
-            
-            if not poly_wgs84.is_valid:
-                st.error("⚠️ Učitana kontura nije validan poligon.")
+            # Ako je MultiPolygon, uzimamo najveći dio ili prvi poligon
+            if isinstance(geom, MultiPolygon):
+                poly_wgs84 = max(geom.geoms, key=lambda a: a.area)
+            elif isinstance(geom, Polygon):
+                poly_wgs84 = geom
             else:
-                st.success("✔ Granica parcele je uspješno učitana!")
+                poly_wgs84 = None
+                
+            if poly_wgs84 is None or not poly_wgs84.is_valid:
+                st.error("⚠️ Geometrija u fajlu nije validan poligon.")
+            else:
+                st.success("✔ Granica parcele je uspješno učitana i prepoznata!")
                 
                 # Određivanje UTM zone
                 centroid_wgs84 = poly_wgs84.centroid
@@ -101,7 +105,7 @@ if uploaded_file is not None:
                     tooltip="Granica parcele"
                 ).add_to(result_map)
                 
-                # Pod-poligoni icentroidi
+                # Pod-poligoni i centroidi
                 colors = ['#3388ff', '#ff3333', '#33ff33', '#ffff33', '#ff33ff', '#33ffff', '#ffa500', '#800080', '#008080', '#808000']
                 for idx, (p_wgs, centroid_coords) in enumerate(zip(sub_polygons_wgs84, centroids_wgs84)):
                     folium.GeoJson(
@@ -117,8 +121,6 @@ if uploaded_file is not None:
                     ).add_to(result_map)
 
                 st_folium(result_map, width=1000, height=600)
-        else:
-            st.warning("Učitani fajl ne sadrži validan Polygon.")
     except Exception as e:
         st.error(f"Greška pri čitanju fajla: {e}")
 else:
