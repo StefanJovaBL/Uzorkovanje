@@ -27,7 +27,6 @@ if st.session_state.drawn_polygon is not None:
 poly_wgs84 = st.session_state.drawn_polygon
 
 if poly_wgs84 is None:
-    # Izbor načina unosa (Crtanje ili Uvoz fajla)
     input_mode = st.radio("Izaberite način unosa parcele:", ["✍️ Nacrtaj na mapi", "📁 Učitaj GeoJSON fajl"])
     
     if input_mode == "📁 Učitaj GeoJSON fajl":
@@ -53,7 +52,6 @@ if poly_wgs84 is None:
                 st.error(f"Greška pri čitanju fajla: {e}")
     
     else:
-        # Mapa za crtanje
         m = folium.Map(location=[44.7722, 17.1910], zoom_start=14, tiles=None)
 
         folium.TileLayer(
@@ -77,14 +75,7 @@ if poly_wgs84 is None:
         draw = Draw(
             export=False,
             position='topleft',
-            draw_options={
-                'polyline': False,
-                'rectangle': False,
-                'circle': False,
-                'marker': False,
-                'circlemarker': False,
-                'polygon': True
-            },
+            draw_options={'polyline': False, 'rectangle': False, 'circle': False, 'marker': False, 'circlemarker': False, 'polygon': True},
             edit_options={'edit': True}
         )
         draw.add_to(m)
@@ -105,11 +96,9 @@ if poly_wgs84 is None:
                             st.session_state.drawn_polygon = p
                             st.rerun()
 
-# Ako imamo definisan poligon, vršimo proračun i prikazujemo rezultat
 if st.session_state.drawn_polygon is not None:
     poly_wgs84 = st.session_state.drawn_polygon
     
-    # Određivanje UTM zone
     centroid_wgs84 = poly_wgs84.centroid
     lon = centroid_wgs84.x
     lat = centroid_wgs84.y
@@ -120,26 +109,3 @@ if st.session_state.drawn_polygon is not None:
     
     crs_wgs84 = CRS.from_epsg(4326)
     crs_utm = CRS.from_epsg(epsg_utm)
-    
-    project_to_utm = Transformer.from_crs(crs_wgs84, crs_utm, always_xy=True).transform
-    project_to_wgs84 = Transformer.from_crs(crs_utm, crs_wgs84, always_xy=True).transform
-    
-    poly_utm = transform(project_to_utm, poly_wgs84)
-    orig_area_ha = poly_utm.area / 10000.0
-
-    # Primjena negativnog bafera od 10 metara
-    buffered_utm = poly_utm.buffer(-10)
-    
-    if buffered_utm.is_empty or buffered_utm.area <= 0:
-        st.error("⚠️ Parcela je premala ili uuska za bafer od 10 metara. Molimo unesite veću parcelu.")
-        if st.button("Pokušaj ponovo"):
-            st.session_state.drawn_polygon = None
-            st.rerun()
-    else:
-        buffer_area_ha = buffered_utm.area / 10000.0
-        st.success("✔ Granica uspješno obrađena!")
-        st.info(f"📊 **Izvještaj o parceli:**\n- UTM zona: **EPSG:{epsg_utm}**\n- Originalna površina: **{orig_area_ha:.2f} ha**\n- Površina nakon 10m bafera: **{buffer_area_ha:.2f} ha**")
-
-        # Optimizacija orijentacije
-        mbr = buffered_utm.minimum_rotated_rectangle
-        rect_coords = list(mbr.exterior
