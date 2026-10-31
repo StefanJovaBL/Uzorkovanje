@@ -1,0 +1,8 @@
+Plaintext
+streamlit
+geopandas
+shapely
+pyproj
+folium
+streamlit-folium
+streamlit-drawable-geojson
