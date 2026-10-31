@@ -13,7 +13,7 @@ import json
 st.set_page_config(page_title="WebGIS Šema Uzorkovanja", layout="wide")
 
 st.title("🌾 WebGIS Alat za Automatsku Šemu Uzorkovanja Tla")
-st.markdown("Nacrtajte parcelu na mapi ili učitajte GeoJSON fajl. Aplikacija primjenjuje **negativni bafer od 10m**, optimizuje orijentaciju, rotira šemu za **45 stepeni** i dijeli parcelu na **tačno 10 zona** sa centroidima.")
+st.markdown("Nacrtajte parcelu na mapi ili učitajte GeoJSON fajl. Aplikacija primjenjuje **negativni bafer od 10m**, optimizuje orijentaciju, rotira šemu za **45 stepeni** i dijeli parcelu u **mrežu od 15 zona (3 reda × 5 kolona)**.")
 
 # Inicijalizacija memorije
 if "drawn_polygon" not in st.session_state:
@@ -157,110 +157,4 @@ if st.session_state.drawn_polygon is not None:
         
         angle += 45
         
-        centroid_buf = buffered_utm.centroid
-        rotated_poly = affinity.rotate(buffered_utm, -angle, origin=centroid_buf)
-        minx, miny, maxx, maxy = rotated_poly.bounds
-        
-        if miny >= maxy or rotated_poly.area <= 0:
-            st.error("⚠️ Baferovana parcela je nepravilnog oblika ili previše uska nakon izvlačenja 10m unutra. Molimo nacrtajte širu parcelu.")
-            if st.button("Pokušaj ponovo"):
-                st.session_state.drawn_polygon = None
-                st.rerun()
-        else:
-            total_area = rotated_poly.area
-            target_area = total_area / 10.0
-            
-            y_cursor = miny
-            sub_polygons_rotated = []
-            
-            for i in range(9):
-                low, high = y_cursor, maxy
-                best_y = maxy
-                for _ in range(30):
-                    mid = (low + high) / 2.0
-                    box = Polygon([(minx - 1000, y_cursor), (maxx + 1000, y_cursor), (maxx + 1000, mid), (minx - 1000, mid)])
-                    area = rotated_poly.intersection(box).area
-                    if area < target_area:
-                        low = mid
-                    else:
-                        high = mid
-                        best_y = mid
-                
-                box = Polygon([(minx - 1000, y_cursor), (maxx + 1000, y_cursor), (maxx + 1000, best_y), (minx - 1000, best_y)])
-                slice_poly = rotated_poly.intersection(box)
-                if not slice_poly.is_empty:
-                    sub_polygons_rotated.append(slice_poly)
-                y_cursor = best_y
-                
-            box = Polygon([(minx - 1000, y_cursor), (maxx + 1000, y_cursor), (maxx + 1000, maxy + 1000), (minx - 1000, maxy + 1000)])
-            slice_poly = rotated_poly.intersection(box)
-            if not slice_poly.is_empty:
-                sub_polygons_rotated.append(slice_poly)
-
-            sub_polygons_wgs84 = []
-            centroids_wgs84 = []
-            
-            for strip in sub_polygons_rotated:
-                if strip.is_empty:
-                    continue
-                strip_orig = affinity.rotate(strip, angle, origin=centroid_buf)
-                
-                if isinstance(strip_orig, MultiPolygon):
-                    largest_part = max(strip_orig.geoms, key=lambda p: p.area)
-                    c_local = largest_part.centroid
-                else:
-                    c_local = strip_orig.centroid
-                
-                strip_wgs84 = transform(project_to_wgs84, strip_orig)
-                c_wgs84 = transform(project_to_wgs84, c_local)
-                
-                sub_polygons_wgs84.append(strip_wgs84)
-                centroids_wgs84.append((c_wgs84.y, c_wgs84.x))
-
-            st.subheader("2. Rezultat: 10 tačaka uzorkovanja i zone (Rotirano za 45°)")
-            result_map = folium.Map(location=[lat, lon], zoom_start=15, tiles=None)
-            
-            folium.TileLayer(
-                tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                attr='Esri',
-                name='Satelitska mapa'
-            ).add_to(result_map)
-            
-            folium.TileLayer(
-                tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-                attr='Esri',
-                name='Nazivi i granice',
-                overlay=True
-            ).add_to(result_map)
-            
-            folium.GeoJson(
-                poly_wgs84.__geo_interface__,
-                style_function=lambda x: {'color': 'red', 'weight': 2, 'fillColor': 'none', 'dashArray': '5, 5'},
-                tooltip="Originalna granica"
-            ).add_to(result_map)
-            
-            buffered_wgs84 = transform(project_to_wgs84, buffered_utm)
-            folium.GeoJson(
-                buffered_wgs84.__geo_interface__,
-                style_function=lambda x: {'color': 'orange', 'weight': 2, 'fillColor': 'blue', 'fillOpacity': 0.05},
-                tooltip="Baferovana granica (-10m)"
-            ).add_to(result_map)
-            
-            colors = ['#3388ff', '#ff3333', '#33ff33', '#ffff33', '#ff33ff', '#33ffff', '#ffa500', '#800080', '#008080', '#808000']
-            for idx, p_wgs in enumerate(sub_polygons_wgs84):
-                color_code = colors[idx % len(colors)]
-                folium.GeoJson(
-                    p_wgs.__geo_interface__,
-                    style_function=lambda x, col=color_code: {'color': 'green', 'weight': 1, 'fillColor': col, 'fillOpacity': 0.3},
-                    tooltip=f"Zona {idx+1}"
-                ).add_to(result_map)
-                
-            for idx, centroid_coords in enumerate(centroids_wgs84):
-                folium.Marker(
-                    location=centroid_coords,
-                    popup=f"<b>Uzorak #{idx+1}</b>",
-                    icon=folium.Icon(color="red", icon="info-sign")
-                ).add_to(result_map)
-
-            folium.LayerControl().add_to(result_map)
-            st_folium(result_map, width=1000, height=500, key="result_map")
+        centroid_buf = buffered_utm
