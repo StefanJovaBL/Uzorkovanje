@@ -131,4 +131,15 @@ if st.session_state.drawn_polygon is not None:
     buffered_utm = poly_utm.buffer(-10)
     
     if buffered_utm.is_empty or buffered_utm.area <= 0:
-        st.error("⚠️ Parcela je premala ili uuska za bafer od 10 metara. Molimo
+        st.error("⚠️ Parcela je premala ili uuska za bafer od 10 metara. Molimo unesite veću parcelu.")
+        if st.button("Pokušaj ponovo"):
+            st.session_state.drawn_polygon = None
+            st.rerun()
+    else:
+        buffer_area_ha = buffered_utm.area / 10000.0
+        st.success("✔ Granica uspješno obrađena!")
+        st.info(f"📊 **Izvještaj o parceli:**\n- UTM zona: **EPSG:{epsg_utm}**\n- Originalna površina: **{orig_area_ha:.2f} ha**\n- Površina nakon 10m bafera: **{buffer_area_ha:.2f} ha**")
+
+        # Optimizacija orijentacije
+        mbr = buffered_utm.minimum_rotated_rectangle
+        rect_coords = list(mbr.exterior
