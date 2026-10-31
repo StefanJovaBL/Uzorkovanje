@@ -4,4 +4,3 @@ shapely
 pyproj
 folium
 streamlit-folium
-streamlit-drawable-geojson
