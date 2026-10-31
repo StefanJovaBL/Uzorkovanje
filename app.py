@@ -143,4 +143,23 @@ if st.session_state.drawn_polygon is not None:
         st.success("✔ Granica uspješno obrađena!")
         st.info(f"📊 **Izvještaj o parceli:**\n- UTM zona: **EPSG:{epsg_utm}**\n- Originalna površina: **{orig_area_ha:.2f} ha**\n- Površina nakon 10m bafera: **{buffer_area_ha:.2f} ha**")
 
-        mbr
+        mbr = buffered_utm.minimum_rotated_rectangle
+        rect_coords = list(mbr.exterior.coords)
+        v1 = np.array(rect_coords[1]) - np.array(rect_coords[0])
+        v2 = np.array(rect_coords[2]) - np.array(rect_coords[1])
+        l1 = np.linalg.norm(v1)
+        l2 = np.linalg.norm(v2)
+        
+        if l1 > l2:
+            angle = np.degrees(np.arctan2(v1[1], v1[0]))
+        else:
+            angle = np.degrees(np.arctan2(v2[1], v2[0]))
+        
+        centroid_buf = buffered_utm.centroid
+        rotated_poly = affinity.rotate(buffered_utm, -angle, origin=centroid_buf)
+        minx, miny, maxx, maxy = rotated_poly.bounds
+        
+        total_area = rotated_poly.area
+        target_area = total_area / 10.0
+        
+        y_cursor
