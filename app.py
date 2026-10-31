@@ -12,13 +12,12 @@ import json
 st.set_page_config(page_title="WebGIS Šema Uzorkovanja", layout="wide")
 
 st.title("🌾 WebGIS Alat za Automatsku Šemu Uzorkovanja Tla")
-st.markdown("Nacrtajte parcelu na satelitskom snimku ili učitajte GeoJSON fajl, a zatim kliknite dugme za proračun. Aplikacija primjenjuje **negativni bafer od 10m**, optimizuje orijentaciju i dijeli parcelu na **tačno 10 zona** sa centroidima.")
+st.markdown("Nacrtajte parcelu na mapi, učitajte GeoJSON fajl ili unesite podatke. Aplikacija primjenjuje **negativni bafer od 10m**, optimizuje orijentaciju i dijeli parcelu na **tačno 10 zona** sa centroidima.")
 
 # Inicijalizacija memorije
 if "drawn_polygon" not in st.session_state:
     st.session_state.drawn_polygon = None
 
-# Dugme za resetovanje
 if st.session_state.drawn_polygon is not None:
     if st.button("🔄 Poništi i unesi novu parcelu"):
         st.session_state.drawn_polygon = None
@@ -82,32 +81,35 @@ if poly_wgs84 is None:
         folium.LayerControl().add_to(m)
 
         st.subheader("Nacrtajte granicu parcele klikom na mapu:")
-        output = st_folium(m, width=1000, height=500, returned_objects=["all_drawings", "last_active_drawing"], key="input_map")
+        output = st_folium(m, width=1000, height=500, key="input_map")
 
+        # Sigurno izvlačenje geometrije iz bilo kog dijela output objekta
         detected_poly = None
         if output:
-            active = output.get("last_active_drawing")
-            if active and "geometry" in active:
-                geom = active["geometry"]
-                if geom and geom.get("type") == "Polygon":
-                    detected_poly = shape(geom)
-            
-            if detected_poly is None:
-                drawings = output.get("all_drawings")
-                if drawings and "features" in drawings and len(drawings["features"]) > 0:
-                    feat = drawings["features"][-1]
-                    if feat and "geometry" in feat:
-                        geom = feat["geometry"]
-                        if geom and geom.get("type") == "Polygon":
-                            detected_poly = shape(geom)
+            for key in ["last_active_drawing", "all_drawings"]:
+                val = output.get(key)
+                if val:
+                    if isinstance(val, dict):
+                        if "geometry" in val:
+                            geom = val["geometry"]
+                            if geom and geom.get("type") == "Polygon":
+                                detected_poly = shape(geom)
+                                break
+                        if "features" in val:
+                            features = val["features"]
+                            if features and len(features) > 0:
+                                last_feat = features[-1]
+                                if last_feat and "geometry" in last_feat:
+                                    geom = last_feat["geometry"]
+                                    if geom and geom.get("type") == "Polygon":
+                                        detected_poly = shape(geom)
+                                        break
 
         if detected_poly is not None and detected_poly.is_valid:
-            st.success("✔ Parcela je uspješno nacrtana na mapi!")
-            if st.button("🚀 Pokreni analizu i izračunaj tačke uzorkovanja"):
-                st.session_state.drawn_polygon = detected_poly
-                st.rerun()
+            st.session_state.drawn_polygon = detected_poly
+            st.rerun()
         else:
-            st.info("💡 Kliknite na ikonicu poligona u gornjem lijevom uglu mape da nacrtate granicu parcele.")
+            st.info("💡 Kliknite na ikonicu poligona u gornjem lijevom uglu mape, nacrtajte oblik i automatski će se pokrenuti proračun.")
 
 if st.session_state.drawn_polygon is not None:
     poly_wgs84 = st.session_state.drawn_polygon
@@ -124,4 +126,133 @@ if st.session_state.drawn_polygon is not None:
     crs_utm = CRS.from_epsg(epsg_utm)
     
     project_to_utm = Transformer.from_crs(crs_wgs84, crs_utm, always_xy=True).transform
-    project_to_wgs84 = Transformer.from_crs
+    project_to_wgs84 = Transformer.from_crs(crs_utm, crs_wgs84, always_xy=True).transform
+    
+    poly_utm = transform(project_to_utm, poly_wgs84)
+    orig_area_ha = poly_utm.area / 10000.0
+
+    buffered_utm = poly_utm.buffer(-10)
+    
+    if buffered_utm.is_empty or buffered_utm.area <= 0:
+        st.error("⚠️ Parcela je premala ili uuska za bafer od 10 metara. Molimo unesite veću parcelu.")
+        if st.button("Pokušaj ponovo"):
+            st.session_state.drawn_polygon = None
+            st.rerun()
+    else:
+        buffer_area_ha = buffered_utm.area / 10000.0
+        st.success("✔ Granica uspješno obrađena!")
+        st.info(f"📊 **Izvještaj o parceli:**\n- UTM zona: **EPSG:{epsg_utm}**\n- Originalna površina: **{orig_area_ha:.2f} ha**\n- Površina nakon 10m bafera: **{buffer_area_ha:.2f} ha**")
+
+        mbr = buffered_utm.minimum_rotated_rectangle
+        rect_coords = list(mbr.exterior.coords)
+        v1 = np.array(rect_coords[1]) - np.array(rect_coords[0])
+        v2 = np.array(rect_coords[2]) - np.array(rect_coords[1])
+        l1 = np.linalg.norm(v1)
+        l2 = np.linalg.norm(v2)
+        
+        if l1 > l2:
+            angle = np.degrees(np.arctan2(v1[1], v1[0]))
+        else:
+            angle = np.degrees(np.arctan2(v2[1], v2[0]))
+        
+        centroid_buf = buffered_utm.centroid
+        rotated_poly = affinity.rotate(buffered_utm, -angle, origin=centroid_buf)
+        minx, miny, maxx, maxy = rotated_poly.bounds
+        
+        total_area = rotated_poly.area
+        target_area = total_area / 10.0
+        
+        y_cursor = miny
+        sub_polygons_rotated = []
+        
+        for i in range(9):
+            low, high = y_cursor, maxy
+            best_y = maxy
+            for _ in range(30):
+                mid = (low + high) / 2.0
+                box = Polygon([(minx - 1000, y_cursor), (maxx + 1000, y_cursor), (maxx + 1000, mid), (minx - 1000, mid)])
+                area = rotated_poly.intersection(box).area
+                if area < target_area:
+                    low = mid
+                else:
+                    high = mid
+                    best_y = mid
+            
+            box = Polygon([(minx - 1000, y_cursor), (maxx + 1000, y_cursor), (maxx + 1000, best_y), (minx - 1000, best_y)])
+            slice_poly = rotated_poly.intersection(box)
+            if not slice_poly.is_empty:
+                sub_polygons_rotated.append(slice_poly)
+            y_cursor = best_y
+            
+        box = Polygon([(minx - 1000, y_cursor), (maxx + 1000, y_cursor), (maxx + 1000, maxy + 1000), (minx - 1000, maxy + 1000)])
+        slice_poly = rotated_poly.intersection(box)
+        if not slice_poly.is_empty:
+            sub_polygons_rotated.append(slice_poly)
+
+        sub_polygons_wgs84 = []
+        centroids_wgs84 = []
+        
+        for strip in sub_polygons_rotated:
+            if strip.is_empty:
+                continue
+            strip_orig = affinity.rotate(strip, angle, origin=centroid_buf)
+            
+            if isinstance(strip_orig, MultiPolygon):
+                largest_part = max(strip_orig.geoms, key=lambda p: p.area)
+                c_local = largest_part.centroid
+            else:
+                c_local = strip_orig.centroid
+            
+            strip_wgs84 = transform(project_to_wgs84, strip_orig)
+            c_wgs84 = transform(project_to_wgs84, c_local)
+            
+            sub_polygons_wgs84.append(strip_wgs84)
+            centroids_wgs84.append((c_wgs84.y, c_wgs84.x))
+
+        st.subheader("2. Rezultat: 10 tačaka uzorkovanja i zone")
+        result_map = folium.Map(location=[lat, lon], zoom_start=15, tiles=None)
+        
+        folium.TileLayer(
+            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attr='Esri',
+            name='Satelitska mapa'
+        ).add_to(result_map)
+        
+        folium.TileLayer(
+            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+            attr='Esri',
+            name='Nazivi i granice',
+            overlay=True
+        ).add_to(result_map)
+        
+        folium.GeoJson(
+            poly_wgs84.__geo_interface__,
+            style_function=lambda x: {'color': 'red', 'weight': 2, 'fillColor': 'none', 'dashArray': '5, 5'},
+            tooltip="Originalna granica"
+        ).add_to(result_map)
+        
+        buffered_wgs84 = transform(project_to_wgs84, buffered_utm)
+        folium.GeoJson(
+            buffered_wgs84.__geo_interface__,
+            style_function=lambda x: {'color': 'orange', 'weight': 2, 'fillColor': 'blue', 'fillOpacity': 0.05},
+            tooltip="Baferovana granica (-10m)"
+        ).add_to(result_map)
+        
+        colors = ['#3388ff', '#ff3333', '#33ff33', '#ffff33', '#ff33ff', '#33ffff', '#ffa500', '#800080', '#008080', '#808000']
+        for idx, p_wgs in enumerate(sub_polygons_wgs84):
+            color_code = colors[idx % len(colors)]
+            folium.GeoJson(
+                p_wgs.__geo_interface__,
+                style_function=lambda x, col=color_code: {'color': 'green', 'weight': 1, 'fillColor': col, 'fillOpacity': 0.3},
+                tooltip=f"Zona {idx+1}"
+            ).add_to(result_map)
+            
+        for idx, centroid_coords in enumerate(centroids_wgs84):
+            folium.Marker(
+                location=centroid_coords,
+                popup=f"<b>Uzorak #{idx+1}</b>",
+                icon=folium.Icon(color="red", icon="info-sign")
+            ).add_to(result_map)
+
+        folium.LayerControl().add_to(result_map)
+        st_folium(result_map, width=1000, height=500, key="result_map")
