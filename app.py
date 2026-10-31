@@ -1,6 +1,6 @@
 import streamlit as st
 import geopandas as gpd
-from shapely.geometry import Polygon, MultiPolygon, shape
+from shapely.geometry import Polygon, shape
 from pyproj import CRS, Transformer
 import folium
 from folium.plugins import Draw
@@ -9,13 +9,33 @@ from streamlit_folium import st_folium
 st.set_page_config(page_title="WebGIS Šema Uzorkovanja", layout="wide")
 
 st.title("🌾 WebGIS Alat za Automatsku Šemu Uzorkovanja Tla")
-st.markdown("Nacrtajte parcelu direktno na mapi ispod pomoću alata za crtanje, a aplikacija će automatski izračunati površinu, prebaciti koordinate u UTM metarski sistem, podijeliti je na 10 jednakih dijelova i izračunati centroide.")
+st.markdown("Nacrtajte parcelu direktno na satelitskom snimku ispod, a aplikacija će automatski izračunati površinu, prebaciti koordinate u UTM metarski sistem, podijeliti je na 10 jednakih dijelova i izračunati centroide.")
 
-# 1. Inicijalna mapa centrirana oko regije Banja Luke
-m = folium.Map(location=[44.7722, 17.1910], zoom_start=14)
-folium.TileLayer('CartoDB positron', name="Light Map").add_to(m)
+# 1. Kreiranje mape sa besplatnom Esri Satelitskom podlogom i hibridnim oznakama
+m = folium.Map(location=[44.7722, 17.1910], zoom_start=14, tiles=None)
 
-# Dodavanje alata za crtanje (omogućavamo samo crtanje poligona - parcela)
+# Satelitska podloga (Esri World Imagery)
+folium.TileLayer(
+    tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attr='Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    name='Satelitska mapa (Esri)',
+    overlay=False,
+    control=True
+).add_to(m)
+
+# Hibridni sloj sa nazivima naselja, putevima i granicama (poput Google Hybrid-a)
+folium.TileLayer(
+    tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+    attr='Esri',
+    name='Hibridni nazivi i granice',
+    overlay=True,
+    control=True
+).add_to(m)
+
+# Standardni OSM kao alternativa
+folium.TileLayer('OpenStreetMap', name='OpenStreetMap', overlay=False, control=True).add_to(m)
+
+# Dodavanje alata za crtanje (omogućavamo samo crtanje poligona - parcele)
 draw = Draw(
     export=False,
     position='topleft',
@@ -32,7 +52,7 @@ draw = Draw(
 draw.add_to(m)
 
 # Prikaz mape i preuzimanje nacrtanih objekata
-st.subheader("1. Nacrtajte granicu parcele na mapi:")
+st.subheader("1. Nacrtajte granicu parcele na satelitskom snimku:")
 output = st_folium(m, width=1000, height=500, returned_objects=["all_drawings", "last_active_drawing"])
 
 # Provjera da li je nešto nacrtano
@@ -43,7 +63,6 @@ if output and output.get("last_active_drawing"):
     if last_geom["type"] == "Polygon":
         poly_wgs84 = shape(last_geom)
 
-# Ako nema direktno poslednjeg, provjeri sve nacrtane
 if poly_wgs84 is None and output and output.get("all_drawings"):
     drawings = output["all_drawings"]
     if drawings and "features" in drawings and len(drawings["features"]) > 0:
@@ -110,10 +129,22 @@ if poly_wgs84 is not None:
                         
             current_ymin = current_ymax
 
-        # Prikaz rezultata na novoj mapi
+        # Prikaz rezultata na novoj mapi sa satelitskom podlogom
         st.subheader("2. Rezultat: Granica parcele i tačke uzorkovanja")
-        result_map = folium.Map(location=[lat, lon], zoom_start=15)
-        folium.TileLayer('CartoDB positron', name="Light Map").add_to(result_map)
+        result_map = folium.Map(location=[lat, lon], zoom_start=15, tiles=None)
+        
+        folium.TileLayer(
+            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attr='Esri',
+            name='Satelitska mapa'
+        ).add_to(result_map)
+        
+        folium.TileLayer(
+            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+            attr='Esri',
+            name='Nazivi i granice',
+            overlay=True
+        ).add_to(result_map)
         
         # Originalna granica
         folium.GeoJson(
@@ -137,6 +168,7 @@ if poly_wgs84 is not None:
                 icon=folium.Icon(color="red", icon="info-sign")
             ).add_to(result_map)
 
+        folium.LayerControl().add_to(result_map)
         st_folium(result_map, width=1000, height=500, key="result_map")
 else:
     st.info("💡 Koristite alat za crtanje (ikonica poligona u gornjem lijevom uglu mape) da ocrtate granice parcele.")
