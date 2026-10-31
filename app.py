@@ -93,7 +93,6 @@ if poly_wgs84 is None:
         st.subheader("Nacrtajte granicu parcele klikom na mapu:")
         output = st_folium(m, width=1000, height=500, returned_objects=["all_drawings", "last_active_drawing"], key="input_map")
 
-        # Robustno izvlačenje nacrtanog poligona
         if output:
             drawings = output.get("all_drawings")
             if drawings and "features" in drawings and len(drawings["features"]) > 0:
@@ -106,7 +105,7 @@ if poly_wgs84 is None:
                             st.session_state.drawn_polygon = p
                             st.rerun()
 
-# Ako imamo definisan poligon (bilo crtanjem ili uvozom), vršimo proračun i prikazujemo rezultat
+# Ako imamo definisan poligon, vršimo proračun i prikazujemo rezultat
 if st.session_state.drawn_polygon is not None:
     poly_wgs84 = st.session_state.drawn_polygon
     
@@ -132,80 +131,4 @@ if st.session_state.drawn_polygon is not None:
     buffered_utm = poly_utm.buffer(-10)
     
     if buffered_utm.is_empty or buffered_utm.area <= 0:
-        st.error("⚠️ Parcela je premala ili uuska za bafer od 10 metara. Molimo unesite veću parcelu.")
-        if st.button("Pokušaj ponovo"):
-            st.session_state.drawn_polygon = None
-            st.rerun()
-    else:
-        buffer_area_ha = buffered_utm.area / 10000.0
-        st.success("✔ Granica uspješno obrađena!")
-        st.info(f"📊 **Izvještaj o parceli:**\n- UTM zona: **EPSG:{epsg_utm}**\n- Originalna površina: **{orig_area_ha:.2f} ha**\n- Površina nakon 10m bafera: **{buffer_area_ha:.2f} ha**")
-
-        # Optimizacija orijentacije
-        mbr = buffered_utm.minimum_rotated_rectangle
-        rect_coords = list(mbr.exterior.coords)
-        v1 = np.array(rect_coords[1]) - np.array(rect_coords[0])
-        v2 = np.array(rect_coords[2]) - np.array(rect_coords[1])
-        l1 = np.linalg.norm(v1)
-        l2 = np.linalg.norm(v2)
-        
-        if l1 > l2:
-            angle = np.degrees(np.arctan2(v1[1], v1[0]))
-        else:
-            angle = np.degrees(np.arctan2(v2[1], v2[0]))
-        
-        centroid_buf = buffered_utm.centroid
-        rotated_poly = affinity.rotate(buffered_utm, -angle, origin=centroid_buf)
-        minx, miny, maxx, maxy = rotated_poly.bounds
-        
-        # Podjela na 10 jednakih zona
-        total_area = rotated_poly.area
-        target_area = total_area / 10.0
-        
-        y_cursor = miny
-        sub_polygons_rotated = []
-        
-        for i in range(9):
-            low, high = y_cursor, maxy
-            best_y = maxy
-            for _ in range(30):
-                mid = (low + high) / 2.0
-                box = Polygon([
-                    (minx - 1000, y_cursor), (maxx + 1000, y_cursor),
-                    (maxx + 1000, mid), (minx - 1000, mid)
-                ])
-                area = rotated_poly.intersection(box).area
-                if area < target_area:
-                    low = mid
-                else:
-                    high = mid
-                    best_y = mid
-            
-            box = Polygon([
-                (minx - 1000, y_cursor), (maxx + 1000, y_cursor),
-                (maxx + 1000, best_y), (minx - 1000, best_y)
-            ])
-            slice_poly = rotated_poly.intersection(box)
-            if not slice_poly.is_empty:
-                sub_polygons_rotated.append(slice_poly)
-            y_cursor = best_y
-            
-        box = Polygon([
-            (minx - 1000, y_cursor), (maxx + 1000, y_cursor),
-            (maxx + 1000, maxy + 1000), (minx - 1000, maxy + 1000)
-        ])
-        slice_poly = rotated_poly.intersection(box)
-        if not slice_poly.is_empty:
-            sub_polygons_rotated.append(slice_poly)
-
-        # Vraćanje zona u WGS84
-        sub_polygons_wgs84 = []
-        centroids_wgs84 = []
-        
-        for strip in sub_polygons_rotated:
-            if strip.is_empty:
-                continue
-            strip_orig = affinity.rotate(strip, angle, origin=centroid_buf)
-            
-            if isinstance(strip_orig, MultiPolygon):
-                largest_part = max(strip_orig.geoms, key=lambda
+        st.error("⚠️ Parcela je premala ili uuska za bafer od 10 metara. Molimo
