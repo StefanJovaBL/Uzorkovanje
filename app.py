@@ -87,17 +87,40 @@ if poly_wgs84 is None:
         if output:
             for key in ["last_active_drawing", "all_drawings"]:
                 val = output.get(key)
-                if val:
-                    if isinstance(val, dict):
-                        if "geometry" in val:
-                            geom = val["geometry"]
-                            if geom and geom.get("type") == "Polygon":
-                                detected_poly = shape(geom)
-                                break
-                        if "features" in val:
-                            features = val["features"]
-                            if features and len(features) > 0:
-                                last_feat = features[-1]
-                                if last_feat and "geometry" in last_feat:
-                                    geom = last_feat["geometry"]
-                                    if geom and geom.get("type") == "Polygon":
+                if val and isinstance(val, dict):
+                    if "geometry" in val:
+                        geom = val["geometry"]
+                        if geom and geom.get("type") == "Polygon":
+                            detected_poly = shape(geom)
+                            break
+                    if "features" in val:
+                        features = val["features"]
+                        if features and len(features) > 0:
+                            last_feat = features[-1]
+                            if last_feat and "geometry" in last_feat:
+                                geom = last_feat["geometry"]
+                                if geom and geom.get("type") == "Polygon":
+                                    detected_poly = shape(geom)
+                                    break
+
+        if detected_poly is not None and detected_poly.is_valid:
+            st.session_state.drawn_polygon = detected_poly
+            st.rerun()
+        else:
+            st.info("💡 Kliknite na ikonicu poligona u gornjem lijevom uglu mape i nacrtajte granicu parcele.")
+
+if st.session_state.drawn_polygon is not None:
+    poly_wgs84 = st.session_state.drawn_polygon
+    
+    centroid_wgs84 = poly_wgs84.centroid
+    lon = centroid_wgs84.x
+    lat = centroid_wgs84.y
+    
+    utm_zone = int((lon + 180) / 6) + 1
+    hemisphere = 'north' if lat >= 0 else 'south'
+    epsg_utm = 32600 + utm_zone if hemisphere == 'north' else 32700 + utm_zone
+    
+    crs_wgs84 = CRS.from_epsg(4326)
+    crs_utm = CRS.from_epsg(epsg_utm)
+    
+    project_to_utm = Transformer.from_crs(crs_wgs84, crs_utm,
