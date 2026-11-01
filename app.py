@@ -13,7 +13,7 @@ import json
 st.set_page_config(page_title="WebGIS Šema Uzorkovanja", layout="wide")
 
 st.title("🌾 WebGIS Alat za Automatsku Šemu Uzorkovanja Tla")
-st.markdown("Nacrtajte parcelu na mapi ili učitajte GeoJSON fajl. Aplikacija primjenjuje **negativni bafer od 10m**, optimizuje orijentaciju, rotira šemu za **45 stepeni** i dijeli parcelu u **mrežu od 15 zona (3 reda × 5 kolona)**.")
+st.markdown("Nacrtajte parcelu na satelitskom snimku ili učitajte GeoJSON fajl. Aplikacija primjenjuje **negativni bafer**, optimizuje orijentaciju, rotira šemu za **45 stepeni** i dijeli parcelu u **mrežu od 15 zona (3 reda × 5 kolona)**.")
 
 # Inicijalizacija memorije
 if "drawn_polygon" not in st.session_state:
@@ -52,6 +52,7 @@ if poly_wgs84 is None:
                 st.error(f"Greška pri čitanju fajla: {e}")
     
     else:
+        # Kreiranje mape sa satelitskim snimkom kao primarnom podlogom vidljivom na telefonu
         m = folium.Map(location=[44.7722, 17.1910], zoom_start=14, tiles=None)
 
         folium.TileLayer(
@@ -59,7 +60,8 @@ if poly_wgs84 is None:
             attr='Esri',
             name='Satelitska mapa',
             overlay=False,
-            control=True
+            control=True,
+            show=True
         ).add_to(m)
 
         folium.TileLayer(
@@ -131,7 +133,6 @@ if st.session_state.drawn_polygon is not None:
     poly_utm = transform(project_to_utm, poly_wgs84)
     orig_area_ha = poly_utm.area / 10000.0
 
-    # Prilagođavanje bafera za manje parcele da se izbjegne nestajanje
     buffer_dist = -10 if orig_area_ha > 0.5 else -3
     buffered_utm = poly_utm.buffer(buffer_dist)
     
@@ -172,7 +173,6 @@ if st.session_state.drawn_polygon is not None:
             total_area = rotated_poly.area
             target_third_area = total_area / 3.0
             
-            # 3 reda po Y osi
             low, high = miny, maxy
             y_mid1 = maxy
             for _ in range(40):
@@ -265,12 +265,15 @@ if st.session_state.drawn_polygon is not None:
                 centroids_wgs84.append((c_wgs84.y, c_wgs84.x))
 
             st.subheader(f"2. Rezultat: Ukupno {len(centroids_wgs84)} tačaka uzorkovanja (3 reda × 5 kolona)")
+            
+            # Takođe i izlazna mapa automatski prikazuje satelitsku podlogu
             result_map = folium.Map(location=[lat, lon], zoom_start=16, tiles=None)
             
             folium.TileLayer(
                 tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                 attr='Esri',
-                name='Satelitska mapa'
+                name='Satelitska mapa',
+                show=True
             ).add_to(result_map)
             
             folium.TileLayer(
