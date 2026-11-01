@@ -89,3 +89,60 @@ if poly_wgs84 is None:
                 val = output.get(key)
                 if val:
                     if isinstance(val, dict):
+                        if "geometry" in val:
+                            geom = val["geometry"]
+                            if geom and geom.get("type") == "Polygon":
+                                detected_poly = shape(geom)
+                                break
+                        if "features" in val:
+                            features = val["features"]
+                            if features and len(features) > 0:
+                                last_feat = features[-1]
+                                if last_feat and "geometry" in last_feat:
+                                    geom = last_feat["geometry"]
+                                    if geom and geom.get("type") == "Polygon":
+                                        detected_poly = shape(geom)
+                                        break
+
+        if detected_poly is not None and detected_poly.is_valid:
+            st.session_state.drawn_polygon = detected_poly
+            st.rerun()
+        else:
+            st.info("💡 Kliknite na ikonicu poligona u gornjem lijevom uglu mape i nacrtajte granicu parcele.")
+
+if st.session_state.drawn_polygon is not None:
+    poly_wgs84 = st.session_state.drawn_polygon
+    
+    centroid_wgs84 = poly_wgs84.centroid
+    lon = centroid_wgs84.x
+    lat = centroid_wgs84.y
+    
+    utm_zone = int((lon + 180) / 6) + 1
+    hemisphere = 'north' if lat >= 0 else 'south'
+    epsg_utm = 32600 + utm_zone if hemisphere == 'north' else 32700 + utm_zone
+    
+    crs_wgs84 = CRS.from_epsg(4326)
+    crs_utm = CRS.from_epsg(epsg_utm)
+    
+    project_to_utm = Transformer.from_crs(crs_wgs84, crs_utm, always_xy=True).transform
+    project_to_wgs84 = Transformer.from_crs(crs_utm, crs_wgs84, always_xy=True).transform
+    
+    poly_utm = transform(project_to_utm, poly_wgs84)
+    orig_area_ha = poly_utm.area / 10000.0
+
+    buffer_dist = -10 if orig_area_ha > 0.5 else -3
+    buffered_utm = poly_utm.buffer(buffer_dist)
+    
+    if buffered_utm.is_empty or buffered_utm.area <= 0:
+        st.error("⚠️ Parcela je premala za zadati bafer. Molimo unesite veću parcelu.")
+        if st.button("Pokušaj ponovo"):
+            st.session_state.drawn_polygon = None
+            st.rerun()
+    else:
+        buffer_area_ha = buffered_utm.area / 10000.0
+        st.success("✔ Granica uspješno obrađena!")
+        st.info(f"📊 **Izvještaj o parceli:**\n- UTM zona: **EPSG:{epsg_utm}**\n- Originalna površina: **{orig_area_ha:.2f} ha**\n- Površina nakon bafera: **{buffer_area_ha:.2f} ha**")
+
+        mbr = buffered_utm.minimum_rotated_rectangle
+        rect_coords = list(mbr.exterior.coords)
+        v1 = np.array(rect_coords[1]) - np.array(rect_coords[0])
