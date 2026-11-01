@@ -81,7 +81,7 @@ if poly_wgs84 is None:
         folium.LayerControl().add_to(m)
 
         st.subheader("Nacrtajte granicu parcele klikom na mapu:")
-        output = st_folium(m, use_container_width=True, height=500, key="input_map")
+        output = st_folium(m, width="100%", height=500, key="input_map")
 
         detected_poly = None
         if output:
@@ -146,3 +146,75 @@ if st.session_state.drawn_polygon is not None:
         mbr = buffered_utm.minimum_rotated_rectangle
         rect_coords = list(mbr.exterior.coords)
         v1 = np.array(rect_coords[1]) - np.array(rect_coords[0])
+        v2 = np.array(rect_coords[2]) - np.array(rect_coords[1])
+        l1 = np.linalg.norm(v1)
+        l2 = np.linalg.norm(v2)
+        
+        if l1 > l2:
+            angle = np.degrees(np.arctan2(v1[1], v1[0]))
+        else:
+            angle = np.degrees(np.arctan2(v2[1], v2[0]))
+        
+        angle += 45
+        
+        centroid_buf = buffered_utm.centroid
+        rotated_poly = affinity.rotate(buffered_utm, -angle, origin=centroid_buf)
+        minx, miny, maxx, maxy = rotated_poly.bounds
+        
+        if miny >= maxy or rotated_poly.area <= 0:
+            st.error("⚠️ Baferovana parcela je nepravilnog oblika. Molimo nacrtajte širu parcelu.")
+            if st.button("Pokušaj ponovo"):
+                st.session_state.drawn_polygon = None
+                st.rerun()
+        else:
+            total_area = rotated_poly.area
+            target_third_area = total_area / 3.0
+            
+            low, high = miny, maxy
+            y_mid1 = maxy
+            for _ in range(40):
+                mid = (low + high) / 2.0
+                box = Polygon([(minx - 1000, miny - 1000), (maxx + 1000, miny - 1000), (maxx + 1000, mid), (minx - 1000, mid)])
+                area = rotated_poly.intersection(box).area
+                if area < target_third_area:
+                    low = mid
+                else:
+                    high = mid
+                    y_mid1 = mid
+
+            low, high = y_mid1, maxy
+            y_mid2 = maxy
+            target_two_thirds = target_third_area * 2.0
+            for _ in range(40):
+                mid = (low + high) / 2.0
+                box = Polygon([(minx - 1000, miny - 1000), (maxx + 1000, miny - 1000), (maxx + 1000, mid), (minx - 1000, mid)])
+                area = rotated_poly.intersection(box).area
+                if area < target_two_thirds:
+                    low = mid
+                else:
+                    high = mid
+                    y_mid2 = mid
+            
+            box_bottom = Polygon([(minx - 1000, miny - 1000), (maxx + 1000, miny - 1000), (maxx + 1000, y_mid1), (minx - 1000, y_mid1)])
+            poly_bottom = rotated_poly.intersection(box_bottom)
+
+            box_middle = Polygon([(minx - 1000, y_mid1), (maxx + 1000, y_mid1), (maxx + 1000, y_mid2), (minx - 1000, y_mid2)])
+            poly_middle = rotated_poly.intersection(box_middle)
+
+            box_top = Polygon([(minx - 1000, y_mid2), (maxx + 1000, y_mid2), (maxx + 1000, maxy + 1000), (minx - 1000, maxy + 1000)])
+            poly_top = rotated_poly.intersection(box_top)
+
+            sub_polygons_rotated = []
+
+            def split_into_columns(region_poly, r_minx, r_maxx, r_miny, r_maxy):
+                cols = []
+                if region_poly.is_empty:
+                    return cols
+                target_col_area = region_poly.area / 5.0
+                x_cursor = r_minx
+                for j in range(4):
+                    low_x, high_x = x_cursor, r_maxx
+                    best_x = r_maxx
+                    for _ in range(30):
+                        mid_x = (low_x + high_x) / 2.0
+                        vbox = Polygon([(x_cursor, r_miny - 1000), (mid_x, r_miny - 1000), (mid_x, r_maxy + 1000), (x_cursor,
