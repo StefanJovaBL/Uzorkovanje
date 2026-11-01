@@ -107,17 +107,4 @@ if st.session_state.drawn_polygon is not None:
     project_to_wgs84 = Transformer.from_crs(crs_utm, crs_wgs84, always_xy=True).transform
     
     poly_utm = transform(project_to_utm, poly_wgs84)
-    orig_area_ha = poly_utm.area / 10000.0
-
-    buffer_dist = -10 if orig_area_ha > 0.5 else -3
-    buffered_utm = poly_utm.buffer(buffer_dist)
-    
-    if buffered_utm.is_empty or buffered_utm.area <= 0:
-        st.error("⚠️ Parcela je premala za zadati bafer. Molimo unesite veću parcelu.")
-        if st.button("Pokušaj ponovo"):
-            st.session_state.drawn_polygon = None
-            st.rerun()
-    else:
-        buffer_area_ha = buffered_utm.area / 10000.0
-        st.success("✔ Granica uspješno obrađena!")
-        st.info(f"📊 **Izvještaj o parceli:**\n- UTM zona: **EPSG:{epsg_utm}**\n- Originalna površina: **{
+    orig_area_ha = poly_utm.area / 10
