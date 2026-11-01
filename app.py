@@ -54,29 +54,10 @@ if poly_wgs84 is None:
     else:
         m = folium.Map(location=[44.7722, 17.1910], zoom_start=14, tiles=None)
 
-        folium.TileLayer(
-            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            attr='Esri',
-            name='Satelitska mapa',
-            overlay=False,
-            control=True,
-            show=True
-        ).add_to(m)
+        folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri', name='Satelitska mapa', overlay=False, control=True, show=True).add_to(m)
+        folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', attr='Esri', name='Nazivi i granice', overlay=True, control=True).add_to(m)
 
-        folium.TileLayer(
-            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-            attr='Esri',
-            name='Nazivi i granice',
-            overlay=True,
-            control=True
-        ).add_to(m)
-
-        draw = Draw(
-            export=False,
-            position='topleft',
-            draw_options={'polyline': False, 'rectangle': False, 'circle': False, 'marker': False, 'circlemarker': False, 'polygon': True},
-            edit_options={'edit': True}
-        )
+        draw = Draw(export=False, position='topleft', draw_options={'polyline': False, 'rectangle': False, 'circle': False, 'marker': False, 'circlemarker': False, 'polygon': True}, edit_options={'edit': True})
         draw.add_to(m)
         folium.LayerControl().add_to(m)
 
@@ -107,20 +88,4 @@ if poly_wgs84 is None:
             st.session_state.drawn_polygon = detected_poly
             st.rerun()
         else:
-            st.info("💡 Kliknite na ikonicu poligona u gornjem lijevom uglu mape i nacrtajte granicu parcele.")
-
-if st.session_state.drawn_polygon is not None:
-    poly_wgs84 = st.session_state.drawn_polygon
-    
-    centroid_wgs84 = poly_wgs84.centroid
-    lon = centroid_wgs84.x
-    lat = centroid_wgs84.y
-    
-    utm_zone = int((lon + 180) / 6) + 1
-    hemisphere = 'north' if lat >= 0 else 'south'
-    epsg_utm = 32600 + utm_zone if hemisphere == 'north' else 32700 + utm_zone
-    
-    crs_wgs84 = CRS.from_epsg(4326)
-    crs_utm = CRS.from_epsg(epsg_utm)
-    
-    project_to_utm = Transformer.from_crs(crs_wgs84, crs_utm,
+            st.info("💡 Klik
