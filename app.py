@@ -13,7 +13,7 @@ import json
 st.set_page_config(page_title="WebGIS Šema Uzorkovanja", layout="wide")
 
 st.title("🌾 WebGIS Alat za Automatsku Šemu Uzorkovanja Tla")
-st.markdown("Nacrtajte parcelu na satelitskom snimku ili učitajte GeoJSON fajl. Aplikacija primjenjuje **negativni bafer**, optimizuje orijentaciju, rotira šemu za **45 stepeni** i dijeli parcelu u **mrežu od 15 zona (3 reda × 5 kolona)**.")
+st.markdown("Nacrtajte parcelu na satelitskom snimku ili učitajte GeoJSON fajl. Aplikacija optimizuje orijentaciju, rotira šemu za **45 stepeni** i dijeli parcelu u **mrežu od 15 zona (3 reda × 5 kolona)**.")
 
 if "drawn_polygon" not in st.session_state:
     st.session_state.drawn_polygon = None
@@ -53,8 +53,8 @@ if poly_wgs84 is None:
     else:
         m = folium.Map(location=[44.7722, 17.1910], zoom_start=14, tiles=None)
 
-        folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri', name='Satelitska mapa', overlay=False, control=True, show=True).add_to(m)
-        folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', attr='Esri', name='Nazivi i granice', overlay=True, control=True).add_to(m)
+        folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri', name='Satelitska mapa', show=True).add_to(m)
+        folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', attr='Esri', name='Nazivi i granice', overlay=True).add_to(m)
 
         draw = Draw(export=False, position='topleft', draw_options={'polyline': False, 'rectangle': False, 'circle': False, 'marker': False, 'circlemarker': False, 'polygon': True}, edit_options={'edit': True})
         draw.add_to(m)
@@ -107,4 +107,27 @@ if st.session_state.drawn_polygon is not None:
     project_to_wgs84 = Transformer.from_crs(crs_utm, crs_wgs84, always_xy=True).transform
     
     poly_utm = transform(project_to_utm, poly_wgs84)
-    orig_area_ha = poly_utm.area / 10
+    orig_area_ha = poly_utm.area / 10000.0
+
+    # Bafer je isključen, koristimo direktno originalnu UTM geometriju
+    buffered_utm = poly_utm
+    
+    if buffered_utm.is_empty or buffered_utm.area <= 0:
+        st.error("⚠️ Unijeti poligon nije validan.")
+        if st.button("Pokušaj ponovo"):
+            st.session_state.drawn_polygon = None
+            st.rerun()
+    else:
+        st.success("✔ Granica uspješno obrađena!")
+        st.info(f"📊 **Izvještaj o parceli:** | UTM zona: **EPSG:{epsg_utm}** | Površina parcele: **{orig_area_ha:.2f} ha**")
+
+        mbr = buffered_utm.minimum_rotated_rectangle
+        rect_coords = list(mbr.exterior.coords)
+        v1 = np.array(rect_coords[1]) - np.array(rect_coords[0])
+        v2 = np.array(rect_coords[2]) - np.array(rect_coords[1])
+        l1 = np.linalg.norm(v1)
+        l2 = np.linalg.norm(v2)
+        
+        if l1 > l2:
+            angle = np.degrees(np.arctan2(v1[1], v1[0]))
+        else:
