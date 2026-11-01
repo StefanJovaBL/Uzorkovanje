@@ -52,7 +52,6 @@ if poly_wgs84 is None:
                 st.error(f"Greška pri čitanju fajla: {e}")
     
     else:
-        # Kreiranje mape sa isključivo Esri satelitskom podlogom
         m = folium.Map(location=[44.7722, 17.1910], zoom_start=14, tiles=None)
 
         folium.TileLayer(
@@ -82,7 +81,7 @@ if poly_wgs84 is None:
         folium.LayerControl().add_to(m)
 
         st.subheader("Nacrtajte granicu parcele klikom na mapu:")
-        output = st_folium(m, width=1000, height=500, key="input_map")
+        output = st_folium(m, use_container_width=True, height=500, key="input_map")
 
         detected_poly = None
         if output:
@@ -90,29 +89,3 @@ if poly_wgs84 is None:
                 val = output.get(key)
                 if val:
                     if isinstance(val, dict):
-                        if "geometry" in val:
-                            geom = val["geometry"]
-                            if geom and geom.get("type") == "Polygon":
-                                detected_poly = shape(geom)
-                                break
-                        if "features" in val:
-                            features = val["features"]
-                            if features and len(features) > 0:
-                                last_feat = features[-1]
-                                if last_feat and "geometry" in last_feat:
-                                    geom = last_feat["geometry"]
-                                    if geom and geom.get("type") == "Polygon":
-                                        detected_poly = shape(geom)
-                                        break
-
-        if detected_poly is not None and detected_poly.is_valid:
-            st.session_state.drawn_polygon = detected_poly
-            st.rerun()
-        else:
-            st.info("💡 Kliknite na ikonicu poligona u gornjem lijevom uglu mape i nacrtajte granicu parcele.")
-
-if st.session_state.drawn_polygon is not None:
-    poly_wgs84 = st.session_state.drawn_polygon
-    
-    centroid_wgs84 = poly_wgs84.centroid
-    lon = centroid_wgs84.x
