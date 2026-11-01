@@ -26,10 +26,10 @@ if st.session_state.drawn_polygon is not None:
 poly_wgs84 = st.session_state.drawn_polygon
 
 if poly_wgs84 is None:
-    input_mode = st.radio("Izaberite način unosa parcele:", ["✍️ Nacrtaj na mapi", "📁 Učitaj GeoJSON fajl"])
+    input_mode = st.radio("Izaberite način unosa parcele:", ["✍️ Nacrtaj na mapi", "📁 Učitaj GeoJSON fajl"], key="input_mode_radio")
     
     if input_mode == "📁 Učitaj GeoJSON fajl":
-        uploaded_file = st.file_uploader("Učitajte fajl granice parcele:", type=["geojson", "json"])
+        uploaded_file = st.file_uploader("Učitajte fajl granice parcele:", type=["geojson", "json"], key="geojson_uploader")
         if uploaded_file is not None:
             try:
                 gdf = gpd.read_file(uploaded_file)
@@ -51,7 +51,7 @@ if poly_wgs84 is None:
                 st.error(f"Greška pri čitanju fajla: {e}")
     
     else:
-        m = folium.Map(location=[44.7722, 17.1910], zoom_start=14, tiles=None)
+        m = folium.Map(location=[44.7722, 17.1910], zoom_start=14)
 
         folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri', name='Satelitska mapa', show=True).add_to(m)
         folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', attr='Esri', name='Nazivi i granice', overlay=True).add_to(m)
@@ -61,3 +61,68 @@ if poly_wgs84 is None:
         folium.LayerControl().add_to(m)
 
         st.subheader("Nacrtajte granicu parcele klikom na mapu:")
+        output = st_folium(m, width="100%", height=500, key="input_map")
+
+        detected_poly = None
+        if output:
+            for key in ["last_active_drawing", "all_drawings"]:
+                val = output.get(key)
+                if val and isinstance(val, dict):
+                    if "geometry" in val:
+                        geom = val["geometry"]
+                        if geom and geom.get("type") == "Polygon":
+                            detected_poly = shape(geom)
+                            break
+                    if "features" in val:
+                        features = val["features"]
+                        if features and len(features) > 0:
+                            last_feat = features[-1]
+                            if last_feat and "geometry" in last_feat:
+                                geom = last_feat["geometry"]
+                                if geom and geom.get("type") == "Polygon":
+                                    detected_poly = shape(geom)
+                                    break
+
+        if detected_poly is not None and detected_poly.is_valid:
+            st.session_state.drawn_polygon = detected_poly
+            st.rerun()
+        else:
+            st.info("💡 Kliknite na ikonicu poligona u gornjem lijevom uglu mape i nacrtajte granicu parcele.")
+
+if st.session_state.drawn_polygon is not None:
+    poly_wgs84 = st.session_state.drawn_polygon
+    
+    centroid_wgs84 = poly_wgs84.centroid
+    lon = centroid_wgs84.x
+    lat = centroid_wgs84.y
+    
+    utm_zone = int((lon + 180) / 6) + 1
+    hemisphere = 'north' if lat >= 0 else 'south'
+    epsg_utm = 32600 + utm_zone if hemisphere == 'north' else 32700 + utm_zone
+    
+    crs_wgs84 = CRS.from_epsg(4326)
+    crs_utm = CRS.from_epsg(epsg_utm)
+    
+    project_to_utm = Transformer.from_crs(crs_wgs84, crs_utm, always_xy=True).transform
+    project_to_wgs84 = Transformer.from_crs(crs_utm, crs_wgs84, always_xy=True).transform
+    
+    poly_utm = transform(project_to_utm, poly_wgs84)
+    orig_area_ha = poly_utm.area / 10000.0
+
+    buffered_utm = poly_utm
+    
+    if buffered_utm.is_empty or buffered_utm.area <= 0:
+        st.error("⚠️ Unijeti poligon nije validan.")
+        if st.button("Pokušaj ponovo"):
+            st.session_state.drawn_polygon = None
+            st.rerun()
+    else:
+        st.success("✔ Granica uspješno obrađena!")
+        st.info(f"📊 **Izvještaj o parceli:** | UTM zona: **EPSG:{epsg_utm}** | Površina parcele: **{orig_area_ha:.2f} ha**")
+
+        mbr = buffered_utm.minimum_rotated_rectangle
+        rect_coords = list(mbr.exterior.coords)
+        v1 = np.array(rect_coords[1]) - np.array(rect_coords[0])
+        v2 = np.array(rect_coords[2]) - np.array(rect_coords[1])
+        l1 = np.linalg.norm(v1)
+        l2 = np.linalg.norm(v2)
