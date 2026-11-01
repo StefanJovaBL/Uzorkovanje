@@ -15,7 +15,6 @@ st.set_page_config(page_title="WebGIS Šema Uzorkovanja", layout="wide")
 st.title("🌾 WebGIS Alat za Automatsku Šemu Uzorkovanja Tla")
 st.markdown("Nacrtajte parcelu na satelitskom snimku ili učitajte GeoJSON fajl. Aplikacija primjenjuje **negativni bafer**, optimizuje orijentaciju, rotira šemu za **45 stepeni** i dijeli parcelu u **mrežu od 15 zona (3 reda × 5 kolona)**.")
 
-# Inicijalizacija memorije
 if "drawn_polygon" not in st.session_state:
     st.session_state.drawn_polygon = None
 
@@ -88,4 +87,26 @@ if poly_wgs84 is None:
             st.session_state.drawn_polygon = detected_poly
             st.rerun()
         else:
-            st.info("💡 Klik
+            st.info("💡 Kliknite na ikonicu poligona u gornjem lijevom uglu mape i nacrtajte granicu parcele.")
+
+if st.session_state.drawn_polygon is not None:
+    poly_wgs84 = st.session_state.drawn_polygon
+    
+    centroid_wgs84 = poly_wgs84.centroid
+    lon = centroid_wgs84.x
+    lat = centroid_wgs84.y
+    
+    utm_zone = int((lon + 180) / 6) + 1
+    hemisphere = 'north' if lat >= 0 else 'south'
+    epsg_utm = 32600 + utm_zone if hemisphere == 'north' else 32700 + utm_zone
+    
+    crs_wgs84 = CRS.from_epsg(4326)
+    crs_utm = CRS.from_epsg(epsg_utm)
+    
+    project_to_utm = Transformer.from_crs(crs_wgs84, crs_utm, always_xy=True).transform
+    project_to_wgs84 = Transformer.from_crs(crs_utm, crs_wgs84, always_xy=True).transform
+    
+    poly_utm = transform(project_to_utm, poly_wgs84)
+    orig_area_ha = poly_utm.area / 10000.0
+
+    buffer_dist = -10 if orig_area_ha > 0.5 else -
